@@ -71,26 +71,10 @@ type postNode struct {
 
 type createPostResponse struct {
 	CreatePostV3 struct {
-		Post postNode `json:"post"`
+		FeedPostItem struct {
+			Post postNode `json:"post"`
+		} `json:"feedPostItem"`
 	} `json:"createPostV3"`
-}
-
-type deletePostResponse struct {
-	DeletePost struct {
-		Success bool `json:"success"`
-	} `json:"deletePost"`
-}
-
-type addReactionResponse struct {
-	AddReactionToPost struct {
-		Success bool `json:"success"`
-	} `json:"addReactionToPost"`
-}
-
-type removeReactionResponse struct {
-	RemoveReactionFromPost struct {
-		Success bool `json:"success"`
-	} `json:"removeReactionFromPost"`
 }
 
 type pagedCommentsResponse struct {

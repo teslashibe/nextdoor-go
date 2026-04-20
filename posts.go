@@ -10,12 +10,13 @@ import (
 type PostOption func(*postOpts)
 
 type postOpts struct {
-	subject string
+	neighborhoodID string
 }
 
-// WithSubject sets the post subject line.
-func WithSubject(s string) PostOption {
-	return func(o *postOpts) { o.subject = s }
+// WithNeighborhoodID targets the post to a specific neighborhood.
+// If not set, the user's home neighborhood is used via GetMe.
+func WithNeighborhoodID(id string) PostOption {
+	return func(o *postOpts) { o.neighborhoodID = id }
 }
 
 const getPostQuery = `query GetPost($postId: ID!) {
@@ -54,18 +55,27 @@ func (c *Client) GetPost(ctx context.Context, postID string) (*Post, error) {
 
 const createPostMutation = `mutation CreatePostV3($input: CreatePostV2Input!) {
   createPostV3(input: $input) {
-    post {
-      id
-      subject
-      body
-      author { displayName url }
-      createdAt { epochSeconds }
-      mediaAttachments { __typename }
+    ... on CreatePostPayloadV2 {
+      feedPostItem {
+        ... on FeedItemPost {
+          post {
+            id
+            subject
+            body
+            author { displayName url }
+            createdAt { epochSeconds }
+          }
+        }
+      }
     }
   }
 }`
 
-// CreatePost creates a new post in the user's neighborhood.
+// CreatePost creates a new post in the user's neighborhood. The body text
+// is required. Nextdoor auto-extracts the subject from the first sentence.
+//
+// By default the post targets the authenticated user's home neighborhood.
+// Use WithNeighborhoodID to override.
 func (c *Client) CreatePost(ctx context.Context, body string, opts ...PostOption) (*Post, error) {
 	if body == "" {
 		return nil, fmt.Errorf("CreatePost: %w: body required", ErrInvalidParams)
@@ -76,9 +86,20 @@ func (c *Client) CreatePost(ctx context.Context, body string, opts ...PostOption
 		fn(&po)
 	}
 
-	input := map[string]any{"body": body}
-	if po.subject != "" {
-		input["subject"] = po.subject
+	hoodID := po.neighborhoodID
+	if hoodID == "" {
+		me, err := c.GetMe(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("CreatePost: resolving neighborhood: %w", err)
+		}
+		hoodID = stripPrefix(me.NeighborhoodID, "neighborhood_")
+	}
+
+	input := map[string]any{
+		"body": body,
+		"postAudienceAndDistribution": map[string]any{
+			"neighborhoodId": hoodID,
+		},
 	}
 
 	vars := map[string]any{"input": input}
@@ -92,13 +113,13 @@ func (c *Client) CreatePost(ctx context.Context, body string, opts ...PostOption
 		return nil, fmt.Errorf("CreatePost: %w: %v", ErrRequestFailed, err)
 	}
 
-	p := postFromNode(resp.CreatePostV3.Post)
+	p := postFromNode(resp.CreatePostV3.FeedPostItem.Post)
 	return &p, nil
 }
 
-const deletePostMutation = `mutation DeletePost($input: DeletePostInput!) {
+const deletePostMutation = `mutation deletePost($input: DeletePostInput!) {
   deletePost(input: $input) {
-    success
+    __typename
   }
 }`
 
@@ -109,17 +130,9 @@ func (c *Client) DeletePost(ctx context.Context, postID string) error {
 	}
 
 	vars := map[string]any{"input": map[string]any{"postId": postID}}
-	data, err := c.gql(ctx, "DeletePost", deletePostMutation, vars)
+	_, err := c.gql(ctx, "deletePost", deletePostMutation, vars)
 	if err != nil {
 		return fmt.Errorf("DeletePost: %w", err)
-	}
-
-	var resp deletePostResponse
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return fmt.Errorf("DeletePost: %w: %v", ErrRequestFailed, err)
-	}
-	if !resp.DeletePost.Success {
-		return fmt.Errorf("DeletePost: %w: server returned success=false", ErrRequestFailed)
 	}
 	return nil
 }
@@ -142,14 +155,9 @@ func (c *Client) ReactToPost(ctx context.Context, postID string, reaction Reacti
 			"reactionType": string(reaction),
 		},
 	}
-	data, err := c.gql(ctx, "AddReactionToPost", addReactionMutation, vars)
+	_, err := c.gql(ctx, "AddReactionToPost", addReactionMutation, vars)
 	if err != nil {
 		return fmt.Errorf("ReactToPost: %w", err)
-	}
-
-	var resp addReactionResponse
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return fmt.Errorf("ReactToPost: %w: %v", ErrRequestFailed, err)
 	}
 	return nil
 }
@@ -169,14 +177,16 @@ func (c *Client) RemoveReaction(ctx context.Context, postID string) error {
 	vars := map[string]any{
 		"input": map[string]any{"postId": postID},
 	}
-	data, err := c.gql(ctx, "RemoveReactionFromPost", removeReactionMutation, vars)
+	_, err := c.gql(ctx, "RemoveReactionFromPost", removeReactionMutation, vars)
 	if err != nil {
 		return fmt.Errorf("RemoveReaction: %w", err)
 	}
-
-	var resp removeReactionResponse
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return fmt.Errorf("RemoveReaction: %w: %v", ErrRequestFailed, err)
-	}
 	return nil
+}
+
+func stripPrefix(s, prefix string) string {
+	if len(s) > len(prefix) && s[:len(prefix)] == prefix {
+		return s[len(prefix):]
+	}
+	return s
 }
