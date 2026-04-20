@@ -12,7 +12,7 @@
 //		CSRFToken:   "...",
 //		AccessToken: "...",
 //	}
-//	c := nextdoor.New(auth)
+//	c, err := nextdoor.New(auth)
 //
 //	me, err := c.GetMe(ctx)
 package nextdoor

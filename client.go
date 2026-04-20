@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -68,14 +69,13 @@ func (c *Client) makeRequest(ctx context.Context, method, url string, body []byt
 		}
 
 		lastErr = err
+
+		if errors.Is(err, ErrRateLimited) {
+			continue
+		}
 		var httpErr *HTTPError
-		if ok := errorAs(err, &httpErr); ok {
-			if httpErr.StatusCode == http.StatusTooManyRequests {
-				continue
-			}
-			if httpErr.StatusCode >= 500 {
-				continue
-			}
+		if errors.As(err, &httpErr) && httpErr.StatusCode >= 500 {
+			continue
 		}
 		return nil, err
 	}
@@ -122,7 +122,7 @@ func (c *Client) doRequest(ctx context.Context, method, url string, body []byte)
 	case http.StatusNotFound:
 		return nil, ErrNotFound
 	case http.StatusTooManyRequests:
-		return nil, &HTTPError{StatusCode: resp.StatusCode, Body: truncate(string(raw), 256)}
+		return nil, fmt.Errorf("%w: %s", ErrRateLimited, truncate(string(raw), 256))
 	default:
 		return nil, &HTTPError{StatusCode: resp.StatusCode, Body: truncate(string(raw), 256)}
 	}
@@ -162,35 +162,4 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "..."
-}
-
-// errorAs is a thin wrapper so we avoid importing errors in every file.
-func errorAs(err error, target any) bool {
-	switch t := target.(type) {
-	case **HTTPError:
-		var httpErr *HTTPError
-		if ok := isHTTPError(err, &httpErr); ok {
-			*t = httpErr
-			return true
-		}
-		return false
-	default:
-		return false
-	}
-}
-
-func isHTTPError(err error, target **HTTPError) bool {
-	for err != nil {
-		if he, ok := err.(*HTTPError); ok {
-			*target = he
-			return true
-		}
-		// unwrap
-		u, ok := err.(interface{ Unwrap() error })
-		if !ok {
-			return false
-		}
-		err = u.Unwrap()
-	}
-	return false
 }

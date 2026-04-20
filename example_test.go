@@ -14,7 +14,10 @@ func Example() {
 		AccessToken: "your-ndbr-at-token",
 	}
 
-	c := nextdoor.New(auth)
+	c, err := nextdoor.New(auth)
+	if err != nil {
+		log.Fatal(err)
+	}
 	ctx := context.Background()
 
 	me, err := c.GetMe(ctx)
@@ -41,7 +44,10 @@ func ExampleClient_SearchPosts() {
 		AccessToken: "your-ndbr-at-token",
 	}
 
-	c := nextdoor.New(auth)
+	c, err := nextdoor.New(auth)
+	if err != nil {
+		log.Fatal(err)
+	}
 	ctx := context.Background()
 
 	results, err := c.SearchPosts(ctx, "lost dog")

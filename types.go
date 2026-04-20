@@ -39,77 +39,77 @@ const (
 
 // Post represents a Nextdoor post.
 type Post struct {
-	ID         string
-	Subject    string
-	Body       string
-	AuthorName string
-	AuthorURL  string
-	CreatedAt  time.Time
+	ID         string    `json:"id"`
+	Subject    string    `json:"subject"`
+	Body       string    `json:"body"`
+	AuthorName string    `json:"authorName"`
+	AuthorURL  string    `json:"authorUrl"`
+	CreatedAt  time.Time `json:"createdAt"`
 }
 
 // FeedPage is a paginated slice of posts.
 type FeedPage struct {
-	Posts      []Post
-	NextCursor string
-	HasNext    bool
+	Posts      []Post `json:"posts"`
+	NextCursor string `json:"nextCursor,omitempty"`
+	HasNext    bool   `json:"hasNext"`
 }
 
 // Comment represents a comment on a post.
 type Comment struct {
-	ID         string
-	AuthorName string
-	AuthorURL  string
-	Body       string
-	CreatedAt  time.Time
+	ID         string    `json:"id"`
+	AuthorName string    `json:"authorName"`
+	AuthorURL  string    `json:"authorUrl"`
+	Body       string    `json:"body"`
+	CreatedAt  time.Time `json:"createdAt"`
 }
 
 // CommentPage is a paginated slice of comments.
 type CommentPage struct {
-	Comments   []Comment
-	NextCursor string
-	HasNext    bool
+	Comments   []Comment `json:"comments"`
+	NextCursor string    `json:"nextCursor,omitempty"`
+	HasNext    bool      `json:"hasNext"`
 }
 
 // Profile represents a Nextdoor user profile.
 type Profile struct {
-	ID               string
-	DisplayName      string
-	GivenName        string
-	NeighborhoodID   string
-	NeighborhoodName string
-	Pronouns         string
+	ID               string `json:"id"`
+	DisplayName      string `json:"displayName"`
+	GivenName        string `json:"givenName"`
+	NeighborhoodID   string `json:"neighborhoodId"`
+	NeighborhoodName string `json:"neighborhoodName"`
+	Pronouns         string `json:"pronouns,omitempty"`
 }
 
 // Message represents a chat message.
 type Message struct {
-	ID        string
-	ChannelID string
-	AuthorID  string
-	Body      string
-	CreatedAt time.Time
+	ID        string    `json:"id"`
+	ChannelID string    `json:"channelId"`
+	AuthorID  string    `json:"authorId"`
+	Body      string    `json:"body"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 // Channel represents a chat channel.
 type Channel struct {
-	ID           string
-	Participants []string
+	ID           string   `json:"id"`
+	Participants []string `json:"participants"`
 }
 
 // Notification represents a notification item.
 type Notification struct {
-	ID        string
-	Title     string
-	Body      string
-	Link      string
-	Read      bool
-	CreatedAt time.Time
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	Body      string    `json:"body"`
+	Link      string    `json:"link"`
+	Read      bool      `json:"read"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 // SearchResult represents a single search hit.
 type SearchResult struct {
-	ID    string
-	Type  string // "post", "neighbor", "neighborhood", "business", "page"
-	Title string
-	Body  string
-	URL   string
+	ID    string `json:"id"`
+	Type  string `json:"type"` // "post", "neighbor", "neighborhood", "business", "page"
+	Title string `json:"title"`
+	Body  string `json:"body"`
+	URL   string `json:"url"`
 }

@@ -38,13 +38,21 @@ func WithRetry(maxRetries int, base time.Duration) Option {
 	}
 }
 
-// WithHTTPClient overrides the default http.Client.
+// WithHTTPClient overrides the default http.Client. Nil is ignored.
 func WithHTTPClient(hc *http.Client) Option {
-	return func(c *Client) { c.httpClient = hc }
+	return func(c *Client) {
+		if hc != nil {
+			c.httpClient = hc
+		}
+	}
 }
 
-// New creates a new Nextdoor client.
-func New(auth Auth, opts ...Option) *Client {
+// New creates a new Nextdoor client. Returns an error if the required
+// auth credentials (CSRFToken, AccessToken) are missing.
+func New(auth Auth, opts ...Option) (*Client, error) {
+	if auth.CSRFToken == "" || auth.AccessToken == "" {
+		return nil, ErrInvalidAuth
+	}
 	c := &Client{
 		auth:       auth,
 		httpClient: &http.Client{Timeout: 30 * time.Second},
@@ -55,5 +63,5 @@ func New(auth Auth, opts ...Option) *Client {
 	for _, o := range opts {
 		o(c)
 	}
-	return c
+	return c, nil
 }
