@@ -1,0 +1,4 @@
+testdata/cookies.json
+*.exe
+*.test
+*.out
