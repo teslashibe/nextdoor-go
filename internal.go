@@ -66,6 +66,7 @@ type postNode struct {
 	} `json:"createdAt"`
 	MediaAttachments []struct {
 		Typename string `json:"__typename"`
+		URL      string `json:"url"`
 	} `json:"mediaAttachments"`
 }
 
@@ -227,21 +228,64 @@ type searchResultNode struct {
 	ContentID string `json:"contentId"`
 }
 
-// --- notifications (unverified) ---
+// --- notifications ---
 
 type notificationFeedResponse struct {
-	NotificationFeed struct {
-		Notifications []notificationNode `json:"notifications"`
-	} `json:"notificationFeed"`
+	Me struct {
+		NotificationFeed struct {
+			BadgeCount int                `json:"badgeCount"`
+			FeedItems  []notificationItem `json:"feedItems"`
+		} `json:"notificationFeed"`
+	} `json:"me"`
+}
+
+type notificationItem struct {
+	Typename     string           `json:"__typename"`
+	Notification notificationNode `json:"notification"`
 }
 
 type notificationNode struct {
-	ID    string `json:"id"`
-	Title string `json:"title"`
-	Body  string `json:"body"`
-	Link  string `json:"link"`
-	Read  bool   `json:"read"`
+	ID   string `json:"id"`
+	Body struct {
+		Text string `json:"text"`
+	} `json:"body"`
+	IsRead    bool `json:"isRead"`
 	CreatedAt struct {
 		EpochSeconds float64 `json:"epochSeconds"`
 	} `json:"createdAt"`
+}
+
+// --- Stream Chat (DM history) ---
+
+type streamChannelQueryResponse struct {
+	Channel struct {
+		ID string `json:"id"`
+	} `json:"channel"`
+	Messages []streamMessage `json:"messages"`
+}
+
+type streamMessage struct {
+	ID   string `json:"id"`
+	Text string `json:"text"`
+	User struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"user"`
+	CreatedAt string `json:"created_at"`
+}
+
+type streamChannelListResponse struct {
+	Channels []struct {
+		Channel struct {
+			ID   string `json:"id"`
+			Type string `json:"type"`
+		} `json:"channel"`
+		Messages []streamMessage `json:"messages"`
+		Members  []struct {
+			User struct {
+				ID   string `json:"id"`
+				Name string `json:"name"`
+			} `json:"user"`
+		} `json:"members"`
+	} `json:"channels"`
 }

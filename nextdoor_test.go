@@ -55,6 +55,13 @@ func loadAuth(t *testing.T) nextdoor.Auth {
 	return auth
 }
 
+func truncateStr(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
+}
+
 func newClient(t *testing.T) *nextdoor.Client {
 	t.Helper()
 	auth := loadAuth(t)
@@ -116,7 +123,7 @@ func TestGetFeed(t *testing.T) {
 		t.Error("expected at least one post")
 	}
 	for i, p := range page.Posts {
-		t.Logf("post[%d]: id=%s author=%s subject=%q", i, p.ID, p.AuthorName, p.Subject)
+		t.Logf("post[%d]: id=%s author=%s subject=%q media=%v", i, p.ID, p.AuthorName, p.Subject, p.MediaURLs)
 	}
 }
 
@@ -254,13 +261,20 @@ func TestSendMessage(t *testing.T) {
 	t.Logf("message sent: id=%s body=%q", msg.ID, msg.Body)
 }
 
-func TestGetNotificationsStub(t *testing.T) {
+func TestGetNotifications(t *testing.T) {
 	c := newClient(t)
 	ctx := context.Background()
 
-	_, err := c.GetNotifications(ctx)
-	if err == nil {
-		t.Fatal("expected error from stub GetNotifications")
+	notifications, err := c.GetNotifications(ctx)
+	if err != nil {
+		t.Fatalf("GetNotifications: %v", err)
 	}
-	t.Logf("GetNotifications correctly returned error: %v", err)
+
+	t.Logf("notifications: %d items", len(notifications))
+	for i, n := range notifications {
+		if i >= 5 {
+			break
+		}
+		t.Logf("notification[%d]: id=%s read=%v body=%q", i, n.ID, n.Read, truncateStr(n.Body, 80))
+	}
 }
