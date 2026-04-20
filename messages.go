@@ -1,11 +1,27 @@
 package nextdoor
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"regexp"
+	"strings"
+	"sync"
 )
+
+const defaultStreamAPIKey = "gvfqwq34swkh"
+
+// StreamConfig holds the credentials needed for Stream Chat messaging.
+type StreamConfig struct {
+	APIKey string `json:"apiKey"`
+	Token  string `json:"token"`
+	UserID string `json:"userId"`
+}
+
+var rtmConfigRe = regexp.MustCompile(`RTM_CONFIG\s*=\s*(\{[^}]+\})`)
 
 const createChannelMutation = `mutation CreateRtmChannel($input: CreateRtmChannelInput!) {
   createRtmChannel(input: $input) {
@@ -13,15 +29,17 @@ const createChannelMutation = `mutation CreateRtmChannel($input: CreateRtmChanne
   }
 }`
 
-// CreateChannel creates a new messaging channel with the given participants.
-func (c *Client) CreateChannel(ctx context.Context, participantIDs []string) (*Channel, error) {
-	if len(participantIDs) == 0 {
-		return nil, fmt.Errorf("CreateChannel: %w: participantIDs required", ErrInvalidParams)
+// CreateChannel creates a new messaging channel with the given legacy user
+// profile IDs (numeric IDs as strings, e.g. "55720928").
+func (c *Client) CreateChannel(ctx context.Context, legacyUserIDs []string) (*Channel, error) {
+	if len(legacyUserIDs) == 0 {
+		return nil, fmt.Errorf("CreateChannel: %w: legacyUserIDs required", ErrInvalidParams)
 	}
 
 	vars := map[string]any{
 		"input": map[string]any{
-			"participantIds": participantIDs,
+			"legacyUserIds": legacyUserIDs,
+			"userIds":       []string{},
 		},
 	}
 
@@ -37,68 +55,73 @@ func (c *Client) CreateChannel(ctx context.Context, participantIDs []string) (*C
 
 	return &Channel{
 		ID:           resp.CreateRtmChannel.ChannelID,
-		Participants: participantIDs,
+		Participants: legacyUserIDs,
 	}, nil
 }
 
-// SendMessage sends a text message to a channel via the REST chat API.
+// SendMessage sends a text message to a Stream Chat channel. The channel
+// must already exist (see CreateChannel). On first call, the client
+// bootstraps RTM credentials from the Nextdoor page.
 func (c *Client) SendMessage(ctx context.Context, channelID, body string) (*Message, error) {
 	if channelID == "" || body == "" {
 		return nil, fmt.Errorf("SendMessage: %w: channelID and body required", ErrInvalidParams)
 	}
 
+	cfg, err := c.getStreamConfig(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("SendMessage: %w", err)
+	}
+
+	cid := channelID
+	if idx := strings.Index(cid, ":"); idx >= 0 {
+		cid = cid[idx+1:]
+	}
+
+	url := fmt.Sprintf("https://chat.stream-io-api.com/channels/messaging/%s/message?api_key=%s", cid, cfg.APIKey)
+
 	payload, err := json.Marshal(map[string]any{
-		"channel_id": channelID,
-		"body":       body,
+		"message": map[string]any{
+			"text": body,
+		},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("SendMessage: %w: %v", ErrRequestFailed, err)
 	}
 
-	raw, err := c.makeRequest(ctx, http.MethodPost, baseURL+"/api/chat/chats", payload)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
-		return nil, fmt.Errorf("SendMessage: %w", err)
+		return nil, fmt.Errorf("SendMessage: %w: %v", ErrRequestFailed, err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", cfg.Token)
+	req.Header.Set("stream-auth-type", "jwt")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("SendMessage: %w: %v", ErrRequestFailed, err)
+	}
+	defer resp.Body.Close()
+
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("SendMessage: %w: reading body: %v", ErrRequestFailed, err)
 	}
 
-	var resp struct {
-		ID        string `json:"id"`
-		ChannelID string `json:"channel_id"`
-		AuthorID  string `json:"author_id"`
-		Body      string `json:"body"`
-		CreatedAt string `json:"created_at"`
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("SendMessage: %w: Stream API %d: %s", ErrRequestFailed, resp.StatusCode, truncate(string(raw), 256))
 	}
-	if err := json.Unmarshal(raw, &resp); err != nil {
+
+	var streamResp streamSendMessageResponse
+	if err := json.Unmarshal(raw, &streamResp); err != nil {
 		return nil, fmt.Errorf("SendMessage: %w: %v", ErrRequestFailed, err)
 	}
 
 	return &Message{
-		ID:        resp.ID,
-		ChannelID: resp.ChannelID,
-		AuthorID:  resp.AuthorID,
-		Body:      resp.Body,
+		ID:        streamResp.Message.ID,
+		ChannelID: channelID,
+		AuthorID:  streamResp.Message.User.ID,
+		Body:      streamResp.Message.Text,
 	}, nil
-}
-
-// GetChannels lists the user's messaging channels via the REST chat API.
-func (c *Client) GetChannels(ctx context.Context) ([]Channel, error) {
-	raw, err := c.makeRequest(ctx, http.MethodGet, baseURL+"/api/chat/chats", nil)
-	if err != nil {
-		return nil, fmt.Errorf("GetChannels: %w", err)
-	}
-
-	var resp chatListResponse
-	if err := json.Unmarshal(raw, &resp); err != nil {
-		return nil, fmt.Errorf("GetChannels: %w: %v", ErrRequestFailed, err)
-	}
-
-	channels := make([]Channel, 0, len(resp.Chats))
-	for _, ch := range resp.Chats {
-		channels = append(channels, Channel{
-			ID:           ch.ID,
-			Participants: ch.Participants,
-		})
-	}
-	return channels, nil
 }
 
 const deleteMessageMutation = `mutation DeleteRtmMessageV2($input: DeleteRtmMessageInput!) {
@@ -132,4 +155,64 @@ func (c *Client) DeleteMessage(ctx context.Context, messageID string) error {
 		return fmt.Errorf("DeleteMessage: %w: server returned success=false", ErrRequestFailed)
 	}
 	return nil
+}
+
+// getStreamConfig returns cached Stream Chat credentials, bootstrapping
+// them from the Nextdoor page HTML on first call.
+func (c *Client) getStreamConfig(ctx context.Context) (*StreamConfig, error) {
+	c.streamOnce.Do(func() {
+		c.streamConfig, c.streamErr = c.bootstrapRTM(ctx)
+	})
+	if c.streamErr != nil {
+		c.streamOnce = sync.Once{}
+		return nil, c.streamErr
+	}
+	return c.streamConfig, nil
+}
+
+// bootstrapRTM fetches the Nextdoor homepage and extracts RTM_CONFIG
+// containing the Stream Chat API key and JWT token.
+func (c *Client) bootstrapRTM(ctx context.Context) (*StreamConfig, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/", nil)
+	if err != nil {
+		return nil, fmt.Errorf("bootstrapRTM: %w: %v", ErrRequestFailed, err)
+	}
+	req.Header.Set("User-Agent", c.userAgent)
+	req.Header.Set("Cookie", c.cookieString())
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("bootstrapRTM: %w: %v", ErrRequestFailed, err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("bootstrapRTM: %w: reading body: %v", ErrRequestFailed, err)
+	}
+
+	matches := rtmConfigRe.FindSubmatch(body)
+	if len(matches) < 2 {
+		return nil, fmt.Errorf("bootstrapRTM: %w: RTM_CONFIG not found in page", ErrRequestFailed)
+	}
+
+	var raw struct {
+		APIKey string `json:"api_key"`
+		Token  string `json:"token"`
+		UserID string `json:"user_id"`
+	}
+	if err := json.Unmarshal(matches[1], &raw); err != nil {
+		return nil, fmt.Errorf("bootstrapRTM: %w: parsing RTM_CONFIG: %v", ErrRequestFailed, err)
+	}
+
+	cfg := &StreamConfig{
+		APIKey: raw.APIKey,
+		Token:  raw.Token,
+		UserID: raw.UserID,
+	}
+	if cfg.APIKey == "" {
+		cfg.APIKey = defaultStreamAPIKey
+	}
+
+	return cfg, nil
 }
