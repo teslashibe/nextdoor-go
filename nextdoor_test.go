@@ -145,6 +145,27 @@ func TestGetComments(t *testing.T) {
 	}
 }
 
+func TestCreateAndDeletePost(t *testing.T) {
+	c := newClient(t)
+	ctx := context.Background()
+
+	post, err := c.CreatePost(ctx, "Automated test from nextdoor-go library — will be deleted in a few seconds. Please ignore!")
+	if err != nil {
+		t.Fatalf("CreatePost: %v", err)
+	}
+
+	if post.ID == "" {
+		t.Fatal("expected non-empty post ID")
+	}
+	t.Logf("created post: id=%s subject=%q", post.ID, post.Subject)
+
+	err = c.DeletePost(ctx, post.ID)
+	if err != nil {
+		t.Fatalf("DeletePost(%s): %v", post.ID, err)
+	}
+	t.Logf("deleted post: %s", post.ID)
+}
+
 func TestSearchPosts(t *testing.T) {
 	c := newClient(t)
 	ctx := context.Background()
