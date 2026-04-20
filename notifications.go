@@ -2,45 +2,14 @@ package nextdoor
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 )
 
-const notificationsQuery = `query NotificationFeed($args: NotificationFeedArgs) {
-  notificationFeed(args: $args) {
-    notifications {
-      id
-      title
-      body
-      link
-      read
-      createdAt { epochSeconds }
-    }
-  }
-}`
-
 // GetNotifications returns the user's notification feed.
+//
+// UNVERIFIED: Live testing found no root query field for notifications.
+// They may only be accessible via the notification page HTML or a
+// different mechanism. This method is a stub and will return an error.
 func (c *Client) GetNotifications(ctx context.Context) ([]Notification, error) {
-	data, err := c.gql(ctx, "NotificationFeed", notificationsQuery, nil)
-	if err != nil {
-		return nil, fmt.Errorf("GetNotifications: %w", err)
-	}
-
-	var resp notificationFeedResponse
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return nil, fmt.Errorf("GetNotifications: %w: %v", ErrRequestFailed, err)
-	}
-
-	notifs := make([]Notification, 0, len(resp.NotificationFeed.Notifications))
-	for _, n := range resp.NotificationFeed.Notifications {
-		notifs = append(notifs, Notification{
-			ID:        n.ID,
-			Title:     n.Title,
-			Body:      n.Body,
-			Link:      n.Link,
-			Read:      n.Read,
-			CreatedAt: epochToTime(n.CreatedAt.EpochSeconds),
-		})
-	}
-	return notifs, nil
+	return nil, fmt.Errorf("GetNotifications: %w: notification query not available in GQL schema (unverified)", ErrRequestFailed)
 }

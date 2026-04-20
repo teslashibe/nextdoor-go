@@ -139,7 +139,7 @@ func TestGetComments(t *testing.T) {
 		t.Fatalf("GetComments(%s): %v", postID, err)
 	}
 
-	t.Logf("comments for post %s: %d", postID, len(cp.Comments))
+	t.Logf("comments for post %s: %d (total: %d)", postID, len(cp.Comments), cp.TotalCount)
 	for i, cm := range cp.Comments {
 		t.Logf("comment[%d]: id=%s author=%s body=%q", i, cm.ID, cm.AuthorName, cm.Body)
 	}
@@ -166,6 +166,36 @@ func TestCreateAndDeletePost(t *testing.T) {
 	t.Logf("deleted post: %s", post.ID)
 }
 
+func TestReactAndRemoveReaction(t *testing.T) {
+	c := newClient(t)
+	ctx := context.Background()
+
+	page, err := c.GetFeed(ctx, nextdoor.WithPageSize(3))
+	if err != nil {
+		t.Fatalf("GetFeed: %v", err)
+	}
+	if len(page.Posts) == 0 {
+		t.Skip("no posts in feed")
+	}
+
+	postID := page.Posts[0].ID
+	t.Logf("reacting to post %s", postID)
+
+	reactionID, err := c.ReactToPost(ctx, postID, nextdoor.ReactionLike)
+	if err != nil {
+		t.Fatalf("ReactToPost: %v", err)
+	}
+	t.Logf("reaction added, reactionID=%s", reactionID)
+
+	if reactionID != "" {
+		err = c.RemoveReaction(ctx, reactionID)
+		if err != nil {
+			t.Fatalf("RemoveReaction(%s): %v", reactionID, err)
+		}
+		t.Logf("reaction removed: %s", reactionID)
+	}
+}
+
 func TestSearchPosts(t *testing.T) {
 	c := newClient(t)
 	ctx := context.Background()
@@ -180,6 +210,57 @@ func TestSearchPosts(t *testing.T) {
 		if i >= 3 {
 			break
 		}
-		t.Logf("result[%d]: id=%s title=%q", i, r.ID, r.Title)
+		t.Logf("result[%d]: id=%s title=%q url=%s", i, r.ID, r.Title, r.URL)
 	}
+}
+
+func TestSearchNeighbors(t *testing.T) {
+	c := newClient(t)
+	ctx := context.Background()
+
+	results, err := c.SearchNeighbors(ctx, "John")
+	if err != nil {
+		t.Fatalf("SearchNeighbors: %v", err)
+	}
+
+	t.Logf("search returned %d results", len(results))
+	for i, r := range results {
+		if i >= 3 {
+			break
+		}
+		t.Logf("result[%d]: id=%s title=%q url=%s", i, r.ID, r.Title, r.URL)
+	}
+}
+
+func TestSendMessage(t *testing.T) {
+	c := newClient(t)
+	ctx := context.Background()
+
+	userID := os.Getenv("NEXTDOOR_TEST_USER_ID")
+	if userID == "" {
+		t.Skip("NEXTDOOR_TEST_USER_ID not set")
+	}
+
+	ch, err := c.CreateChannel(ctx, []string{userID})
+	if err != nil {
+		t.Fatalf("CreateChannel: %v", err)
+	}
+	t.Logf("channel created: %s", ch.ID)
+
+	msg, err := c.SendMessage(ctx, ch.ID, "Test message from nextdoor-go library")
+	if err != nil {
+		t.Fatalf("SendMessage: %v", err)
+	}
+	t.Logf("message sent: id=%s body=%q", msg.ID, msg.Body)
+}
+
+func TestGetNotificationsStub(t *testing.T) {
+	c := newClient(t)
+	ctx := context.Background()
+
+	_, err := c.GetNotifications(ctx)
+	if err == nil {
+		t.Fatal("expected error from stub GetNotifications")
+	}
+	t.Logf("GetNotifications correctly returned error: %v", err)
 }

@@ -77,12 +77,21 @@ type createPostResponse struct {
 	} `json:"createPostV3"`
 }
 
-type pagedCommentsResponse struct {
-	PagedComments struct {
-		Comments []commentNode `json:"comments"`
-		NextPage string        `json:"nextPage"`
-	} `json:"pagedComments"`
+// --- reactions ---
+
+type addReactionResponse struct {
+	AddReactionToPost struct {
+		Post struct {
+			ReactionSummaries struct {
+				Summaries []struct {
+					UserReactionID string `json:"userReactionId"`
+				} `json:"summaries"`
+			} `json:"reactionSummaries"`
+		} `json:"post"`
+	} `json:"addReactionToPost"`
 }
+
+// --- comments ---
 
 type commentNode struct {
 	ID     string `json:"id"`
@@ -122,6 +131,8 @@ type getProfileResponse struct {
 	} `json:"get_profile"`
 }
 
+// --- messaging ---
+
 type createChannelResponse struct {
 	CreateRtmChannel struct {
 		ChannelID string `json:"channelId"`
@@ -134,32 +145,89 @@ type deleteMessageResponse struct {
 	} `json:"deleteRtmMessageV2"`
 }
 
-type chatListResponse struct {
-	Chats []struct {
-		ID           string   `json:"id"`
-		Participants []string `json:"participants"`
-	} `json:"chats"`
+// Stream Chat send-message response.
+type streamSendMessageResponse struct {
+	Message struct {
+		ID   string `json:"id"`
+		Text string `json:"text"`
+		User struct {
+			ID string `json:"id"`
+		} `json:"user"`
+	} `json:"message"`
 }
+
+// --- feed with inline comments ---
+
+type feedWithCommentsResponse struct {
+	Me struct {
+		PersonalizedFeed struct {
+			FeedItems []feedItemWithComments `json:"feedItems"`
+		} `json:"personalizedFeed"`
+	} `json:"me"`
+}
+
+type feedItemWithComments struct {
+	Typename string `json:"__typename"`
+	Post     struct {
+		ID       string `json:"id"`
+		Comments struct {
+			PagedComments struct {
+				Edges []struct {
+					Node struct {
+						Comment commentNode `json:"comment"`
+					} `json:"node"`
+				} `json:"edges"`
+				PageInfo struct {
+					HasNextPage bool   `json:"hasNextPage"`
+					EndCursor   string `json:"endCursor"`
+				} `json:"pageInfo"`
+			} `json:"pagedComments"`
+			TotalCommentCount int `json:"totalCommentCount"`
+		} `json:"comments"`
+	} `json:"post"`
+}
+
+// --- search (searchResultView is a union array) ---
 
 type searchPostFeedResponse struct {
 	SearchPostFeed struct {
-		Results []searchNode `json:"results"`
+		SearchResultView []json.RawMessage `json:"searchResultView"`
 	} `json:"searchPostFeed"`
 }
 
-type searchNeighborsResponse struct {
-	SearchNeighbor struct {
-		Results []searchNode `json:"results"`
-	} `json:"searchNeighbor"`
+type searchNeighborFeedResponse struct {
+	SearchNeighborFeed struct {
+		SearchResultView []json.RawMessage `json:"searchResultView"`
+	} `json:"searchNeighborFeed"`
 }
 
-type searchNode struct {
-	ID    string `json:"id"`
-	Title string `json:"title"`
-	Body  string `json:"body"`
-	URL   string `json:"url"`
-	Type  string `json:"type"`
+type searchResultSection struct {
+	Typename          string `json:"__typename"`
+	SearchResultItems struct {
+		Edges    []searchEdge `json:"edges"`
+		PageInfo struct {
+			HasNextPage bool   `json:"hasNextPage"`
+			EndCursor   string `json:"endCursor"`
+		} `json:"pageInfo"`
+	} `json:"searchResultItems"`
 }
+
+type searchEdge struct {
+	Node searchResultNode `json:"node"`
+}
+
+type searchResultNode struct {
+	Title struct {
+		Text string `json:"text"`
+	} `json:"title"`
+	Body struct {
+		Text string `json:"text"`
+	} `json:"body"`
+	URL       string `json:"url"`
+	ContentID string `json:"contentId"`
+}
+
+// --- notifications (unverified) ---
 
 type notificationFeedResponse struct {
 	NotificationFeed struct {

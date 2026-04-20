@@ -2,6 +2,7 @@ package nextdoor
 
 import (
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -20,6 +21,10 @@ type Client struct {
 	userAgent  string
 	maxRetries int
 	retryBase  time.Duration
+
+	streamOnce   sync.Once
+	streamConfig *StreamConfig
+	streamErr    error
 }
 
 // Option configures a Client.

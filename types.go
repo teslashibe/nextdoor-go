@@ -66,6 +66,7 @@ type Comment struct {
 // CommentPage is a paginated slice of comments.
 type CommentPage struct {
 	Comments   []Comment `json:"comments"`
+	TotalCount int       `json:"totalCount,omitempty"`
 	NextCursor string    `json:"nextCursor,omitempty"`
 	HasNext    bool      `json:"hasNext"`
 }

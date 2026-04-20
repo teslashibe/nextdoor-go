@@ -6,62 +6,93 @@ import (
 	"fmt"
 )
 
-const getCommentsQuery = `query PagedComments($postId: ID!, $cursor: String, $pageSize: Int) {
-  pagedComments(postId: $postId, cursor: $cursor, pageSize: $pageSize) {
-    comments {
-      id
-      author { displayName url }
-      body
-      createdAt { epochSeconds }
+const feedWithCommentsQuery = `query PersonalizedFeedWithComments($mainFeedArgs: MainFeedArgs!) {
+  me {
+    personalizedFeed(mainFeedArgs: $mainFeedArgs) {
+      feedItems {
+        __typename
+        ... on FeedItemPost {
+          post {
+            id
+            comments(mode: DETAILS) {
+              pagedComments {
+                edges {
+                  node {
+                    comment {
+                      id
+                      body
+                      author { displayName url }
+                      createdAt { epochSeconds }
+                    }
+                  }
+                }
+                pageInfo {
+                  hasNextPage
+                  endCursor
+                }
+              }
+              totalCommentCount
+            }
+          }
+        }
+      }
     }
-    nextPage
   }
 }`
 
 // GetComments returns the first page of comments for a post.
+//
+// Because the root Query.post field uses an unknown argument name, this
+// fetches comments by loading the personalizedFeed with inline comment
+// expansion and filtering for the target post ID.
 func (c *Client) GetComments(ctx context.Context, postID string) (CommentPage, error) {
-	return c.getComments(ctx, postID, "")
-}
-
-// GetCommentsPage returns a page of comments starting from a cursor.
-func (c *Client) GetCommentsPage(ctx context.Context, postID, cursor string) (CommentPage, error) {
-	return c.getComments(ctx, postID, cursor)
-}
-
-func (c *Client) getComments(ctx context.Context, postID, cursor string) (CommentPage, error) {
 	if postID == "" {
 		return CommentPage{}, fmt.Errorf("GetComments: %w: postID required", ErrInvalidParams)
 	}
 
 	vars := map[string]any{
-		"postId":   postID,
-		"pageSize": 20,
-	}
-	if cursor != "" {
-		vars["cursor"] = cursor
+		"mainFeedArgs": map[string]any{
+			"orderingMode": string(OrderRecentPosts),
+			"pageSize":     20,
+		},
 	}
 
-	data, err := c.gql(ctx, "PagedComments", getCommentsQuery, vars)
+	data, err := c.gql(ctx, "PersonalizedFeedWithComments", feedWithCommentsQuery, vars)
 	if err != nil {
 		return CommentPage{}, fmt.Errorf("GetComments: %w", err)
 	}
 
-	var resp pagedCommentsResponse
+	var resp feedWithCommentsResponse
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return CommentPage{}, fmt.Errorf("GetComments: %w: %v", ErrRequestFailed, err)
 	}
 
-	pc := resp.PagedComments
-	var comments []Comment
-	for _, n := range pc.Comments {
-		comments = append(comments, commentFromNode(n))
+	for _, item := range resp.Me.PersonalizedFeed.FeedItems {
+		if item.Typename != "FeedItemPost" || item.Post.ID != postID {
+			continue
+		}
+
+		pc := item.Post.Comments.PagedComments
+		var comments []Comment
+		for _, edge := range pc.Edges {
+			comments = append(comments, commentFromNode(edge.Node.Comment))
+		}
+
+		return CommentPage{
+			Comments:   comments,
+			TotalCount: item.Post.Comments.TotalCommentCount,
+			NextCursor: pc.PageInfo.EndCursor,
+			HasNext:    pc.PageInfo.HasNextPage,
+		}, nil
 	}
 
-	return CommentPage{
-		Comments:   comments,
-		NextCursor: pc.NextPage,
-		HasNext:    pc.NextPage != "",
-	}, nil
+	return CommentPage{}, fmt.Errorf("GetComments: %w: post %s not found in feed", ErrRequestFailed, postID)
+}
+
+// GetCommentsPage returns a page of comments starting from a cursor.
+// Currently unsupported — the root post query arg name is unknown.
+func (c *Client) GetCommentsPage(ctx context.Context, postID, cursor string) (CommentPage, error) {
+	return CommentPage{}, fmt.Errorf("GetCommentsPage: %w: cursor-based comment pagination not yet supported", ErrRequestFailed)
 }
 
 const createCommentMutation = `mutation CreateCommentV3($input: CreateCommentInput!) {

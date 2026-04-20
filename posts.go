@@ -139,43 +139,61 @@ func (c *Client) DeletePost(ctx context.Context, postID string) error {
 
 const addReactionMutation = `mutation AddReactionToPost($input: AddReactionToPostInput!) {
   addReactionToPost(input: $input) {
-    success
+    post {
+      reactionSummaries {
+        summaries {
+          userReactionId
+        }
+      }
+    }
   }
 }`
 
-// ReactToPost adds a reaction to a post.
-func (c *Client) ReactToPost(ctx context.Context, postID string, reaction ReactionType) error {
+// ReactToPost adds a reaction to a post and returns the reaction ID needed
+// for later removal via RemoveReaction.
+func (c *Client) ReactToPost(ctx context.Context, postID string, reaction ReactionType) (string, error) {
 	if postID == "" {
-		return fmt.Errorf("ReactToPost: %w: postID required", ErrInvalidParams)
+		return "", fmt.Errorf("ReactToPost: %w: postID required", ErrInvalidParams)
 	}
 
 	vars := map[string]any{
 		"input": map[string]any{
 			"postId":       postID,
-			"reactionType": string(reaction),
+			"reactionName": string(reaction),
 		},
 	}
-	_, err := c.gql(ctx, "AddReactionToPost", addReactionMutation, vars)
+	data, err := c.gql(ctx, "AddReactionToPost", addReactionMutation, vars)
 	if err != nil {
-		return fmt.Errorf("ReactToPost: %w", err)
+		return "", fmt.Errorf("ReactToPost: %w", err)
 	}
-	return nil
+
+	var resp addReactionResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return "", fmt.Errorf("ReactToPost: %w: %v", ErrRequestFailed, err)
+	}
+
+	summaries := resp.AddReactionToPost.Post.ReactionSummaries.Summaries
+	if len(summaries) > 0 {
+		return summaries[0].UserReactionID, nil
+	}
+	return "", nil
 }
 
 const removeReactionMutation = `mutation RemoveReactionFromPost($input: RemoveReactionInput!) {
   removeReactionFromPost(input: $input) {
-    success
+    __typename
   }
 }`
 
-// RemoveReaction removes the current user's reaction from a post.
-func (c *Client) RemoveReaction(ctx context.Context, postID string) error {
-	if postID == "" {
-		return fmt.Errorf("RemoveReaction: %w: postID required", ErrInvalidParams)
+// RemoveReaction removes a reaction by its reaction ID (obtained from
+// ReactToPost or from post.reactionSummaries).
+func (c *Client) RemoveReaction(ctx context.Context, reactionID string) error {
+	if reactionID == "" {
+		return fmt.Errorf("RemoveReaction: %w: reactionID required", ErrInvalidParams)
 	}
 
 	vars := map[string]any{
-		"input": map[string]any{"postId": postID},
+		"input": map[string]any{"reactionId": reactionID},
 	}
 	_, err := c.gql(ctx, "RemoveReactionFromPost", removeReactionMutation, vars)
 	if err != nil {
