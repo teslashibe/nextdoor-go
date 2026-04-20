@@ -32,7 +32,10 @@ func main() {
         // SessionID: "...",
     }
 
-    c := nextdoor.New(auth)
+    c, err := nextdoor.New(auth)
+    if err != nil {
+        log.Fatal(err)
+    }
     ctx := context.Background()
 
     // Get authenticated user
@@ -51,7 +54,7 @@ func main() {
         log.Fatal(err)
     }
     for _, p := range feed.Posts {
-        fmt.Printf("- %s: %s\n", p.AuthorName, p.Title)
+        fmt.Printf("- %s: %s\n", p.AuthorName, p.Subject)
     }
 }
 ```

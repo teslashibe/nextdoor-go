@@ -9,8 +9,7 @@ import (
 	"github.com/teslashibe/nextdoor-go"
 )
 
-// cookieFile represents a single cookie entry from a browser cookie export.
-type cookieFile struct {
+type cookieEntry struct {
 	Name  string `json:"name"`
 	Value string `json:"value"`
 }
@@ -27,7 +26,7 @@ func loadAuth(t *testing.T) nextdoor.Auth {
 		t.Fatalf("reading cookies file: %v", err)
 	}
 
-	var cookies []cookieFile
+	var cookies []cookieEntry
 	if err := json.Unmarshal(raw, &cookies); err != nil {
 		t.Fatalf("parsing cookies JSON: %v", err)
 	}
@@ -56,9 +55,38 @@ func loadAuth(t *testing.T) nextdoor.Auth {
 	return auth
 }
 
-func TestGetMe(t *testing.T) {
+func newClient(t *testing.T) *nextdoor.Client {
+	t.Helper()
 	auth := loadAuth(t)
-	c := nextdoor.New(auth)
+	c, err := nextdoor.New(auth)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	return c
+}
+
+func TestNewValidatesAuth(t *testing.T) {
+	_, err := nextdoor.New(nextdoor.Auth{})
+	if err == nil {
+		t.Fatal("expected error for empty auth")
+	}
+
+	_, err = nextdoor.New(nextdoor.Auth{CSRFToken: "x"})
+	if err == nil {
+		t.Fatal("expected error for missing AccessToken")
+	}
+
+	c, err := nextdoor.New(nextdoor.Auth{CSRFToken: "x", AccessToken: "y"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if c == nil {
+		t.Fatal("expected non-nil client")
+	}
+}
+
+func TestGetMe(t *testing.T) {
+	c := newClient(t)
 	ctx := context.Background()
 
 	me, err := c.GetMe(ctx)
@@ -76,8 +104,7 @@ func TestGetMe(t *testing.T) {
 }
 
 func TestGetFeed(t *testing.T) {
-	auth := loadAuth(t)
-	c := nextdoor.New(auth)
+	c := newClient(t)
 	ctx := context.Background()
 
 	page, err := c.GetFeed(ctx, nextdoor.WithPageSize(3))
@@ -94,8 +121,7 @@ func TestGetFeed(t *testing.T) {
 }
 
 func TestGetComments(t *testing.T) {
-	auth := loadAuth(t)
-	c := nextdoor.New(auth)
+	c := newClient(t)
 	ctx := context.Background()
 
 	page, err := c.GetFeed(ctx, nextdoor.WithPageSize(5))
@@ -120,8 +146,7 @@ func TestGetComments(t *testing.T) {
 }
 
 func TestSearchPosts(t *testing.T) {
-	auth := loadAuth(t)
-	c := nextdoor.New(auth)
+	c := newClient(t)
 	ctx := context.Background()
 
 	results, err := c.SearchPosts(ctx, "neighborhood")

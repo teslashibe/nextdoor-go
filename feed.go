@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"time"
 )
 
@@ -76,27 +77,6 @@ func (c *Client) GetFeed(ctx context.Context, opts ...FeedOption) (FeedPage, err
 	return parseFeedResponse(fr), nil
 }
 
-const feedPageQuery = `query PersonalizedFeed($mainFeedArgs: MainFeedArgs!) {
-  me {
-    personalizedFeed(mainFeedArgs: $mainFeedArgs) {
-      feedItems {
-        __typename
-        ... on FeedItemPost {
-          post {
-            id
-            subject
-            body
-            author { displayName url }
-            createdAt { epochSeconds }
-            mediaAttachments { __typename }
-          }
-        }
-      }
-      nextPage
-    }
-  }
-}`
-
 // GetFeedPage fetches the next page of the feed using a cursor.
 func (c *Client) GetFeedPage(ctx context.Context, cursor string) (FeedPage, error) {
 	vars := map[string]any{
@@ -107,7 +87,7 @@ func (c *Client) GetFeedPage(ctx context.Context, cursor string) (FeedPage, erro
 		},
 	}
 
-	data, err := c.gql(ctx, "PersonalizedFeed", feedPageQuery, vars)
+	data, err := c.gql(ctx, "PersonalizedFeed", feedQuery, vars)
 	if err != nil {
 		return FeedPage{}, fmt.Errorf("GetFeedPage: %w", err)
 	}
@@ -137,13 +117,17 @@ func parseFeedResponse(fr feedResponse) FeedPage {
 }
 
 func postFromNode(n postNode) Post {
-	t := time.Unix(int64(n.CreatedAt.EpochSeconds), 0)
 	return Post{
 		ID:         n.ID,
 		Subject:    n.Subject,
 		Body:       n.Body,
 		AuthorName: n.Author.DisplayName,
 		AuthorURL:  n.Author.URL,
-		CreatedAt:  t,
+		CreatedAt:  epochToTime(n.CreatedAt.EpochSeconds),
 	}
+}
+
+func epochToTime(epoch float64) time.Time {
+	sec, frac := math.Modf(epoch)
+	return time.Unix(int64(sec), int64(frac*1e9))
 }

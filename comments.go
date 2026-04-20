@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 )
 
 const getCommentsQuery = `query PagedComments($postId: ID!, $cursor: String, $pageSize: Int) {
@@ -132,12 +131,11 @@ func (c *Client) DeleteComment(ctx context.Context, commentID string) error {
 }
 
 func commentFromNode(n commentNode) Comment {
-	t := time.Unix(int64(n.CreatedAt.EpochSeconds), 0)
 	return Comment{
 		ID:         n.ID,
 		AuthorName: n.Author.DisplayName,
 		AuthorURL:  n.Author.URL,
 		Body:       n.Body,
-		CreatedAt:  t,
+		CreatedAt:  epochToTime(n.CreatedAt.EpochSeconds),
 	}
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 )
 
 const notificationsQuery = `query NotificationFeed($args: NotificationFeedArgs) {
@@ -34,14 +33,13 @@ func (c *Client) GetNotifications(ctx context.Context) ([]Notification, error) {
 
 	notifs := make([]Notification, 0, len(resp.NotificationFeed.Notifications))
 	for _, n := range resp.NotificationFeed.Notifications {
-		t := time.Unix(int64(n.CreatedAt.EpochSeconds), 0)
 		notifs = append(notifs, Notification{
 			ID:        n.ID,
 			Title:     n.Title,
 			Body:      n.Body,
 			Link:      n.Link,
 			Read:      n.Read,
-			CreatedAt: t,
+			CreatedAt: epochToTime(n.CreatedAt.EpochSeconds),
 		})
 	}
 	return notifs, nil
