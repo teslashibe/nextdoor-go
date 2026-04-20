@@ -10,9 +10,13 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 )
 
-const defaultStreamAPIKey = "gvfqwq34swkh"
+const (
+	defaultStreamAPIKey = "gvfqwq34swkh"
+	streamAPIURL        = "https://chat.stream-io-api.com"
+)
 
 // StreamConfig holds the credentials needed for Stream Chat messaging.
 type StreamConfig struct {
@@ -155,6 +159,145 @@ func (c *Client) DeleteMessage(ctx context.Context, messageID string) error {
 		return fmt.Errorf("DeleteMessage: %w: server returned success=false", ErrRequestFailed)
 	}
 	return nil
+}
+
+// GetChannels lists the user's DM channels via the Stream Chat API.
+func (c *Client) GetChannels(ctx context.Context) ([]Channel, error) {
+	cfg, err := c.getStreamConfig(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("GetChannels: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/channels?api_key=%s", streamAPIURL, cfg.APIKey)
+
+	payload, err := json.Marshal(map[string]any{
+		"filter_conditions": map[string]any{
+			"members": map[string]any{
+				"$in": []string{cfg.UserID},
+			},
+		},
+		"sort":  []map[string]any{{"field": "last_message_at", "direction": -1}},
+		"limit": 20,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("GetChannels: %w: %v", ErrRequestFailed, err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("GetChannels: %w: %v", ErrRequestFailed, err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", cfg.Token)
+	req.Header.Set("stream-auth-type", "jwt")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("GetChannels: %w: %v", ErrRequestFailed, err)
+	}
+	defer resp.Body.Close()
+
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("GetChannels: %w: reading body: %v", ErrRequestFailed, err)
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("GetChannels: %w: Stream API %d: %s", ErrRequestFailed, resp.StatusCode, truncate(string(raw), 256))
+	}
+
+	var listResp streamChannelListResponse
+	if err := json.Unmarshal(raw, &listResp); err != nil {
+		return nil, fmt.Errorf("GetChannels: %w: %v", ErrRequestFailed, err)
+	}
+
+	var channels []Channel
+	for _, ch := range listResp.Channels {
+		var participants []string
+		for _, m := range ch.Members {
+			name := m.User.Name
+			if name == "" {
+				name = m.User.ID
+			}
+			participants = append(participants, name)
+		}
+		channels = append(channels, Channel{
+			ID:           ch.Channel.ID,
+			Participants: participants,
+		})
+	}
+	return channels, nil
+}
+
+// GetMessages returns the message history for a Stream Chat channel.
+func (c *Client) GetMessages(ctx context.Context, channelID string) ([]Message, error) {
+	if channelID == "" {
+		return nil, fmt.Errorf("GetMessages: %w: channelID required", ErrInvalidParams)
+	}
+
+	cfg, err := c.getStreamConfig(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("GetMessages: %w", err)
+	}
+
+	cid := channelID
+	if idx := strings.Index(cid, ":"); idx >= 0 {
+		cid = cid[idx+1:]
+	}
+
+	url := fmt.Sprintf("%s/channels/messaging/%s/query?api_key=%s", streamAPIURL, cid, cfg.APIKey)
+
+	payload, err := json.Marshal(map[string]any{
+		"messages": map[string]any{"limit": 50},
+		"state":    true,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("GetMessages: %w: %v", ErrRequestFailed, err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("GetMessages: %w: %v", ErrRequestFailed, err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", cfg.Token)
+	req.Header.Set("stream-auth-type", "jwt")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("GetMessages: %w: %v", ErrRequestFailed, err)
+	}
+	defer resp.Body.Close()
+
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("GetMessages: %w: reading body: %v", ErrRequestFailed, err)
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("GetMessages: %w: Stream API %d: %s", ErrRequestFailed, resp.StatusCode, truncate(string(raw), 256))
+	}
+
+	var queryResp streamChannelQueryResponse
+	if err := json.Unmarshal(raw, &queryResp); err != nil {
+		return nil, fmt.Errorf("GetMessages: %w: %v", ErrRequestFailed, err)
+	}
+
+	var messages []Message
+	for _, sm := range queryResp.Messages {
+		msg := Message{
+			ID:         sm.ID,
+			ChannelID:  channelID,
+			AuthorID:   sm.User.ID,
+			AuthorName: sm.User.Name,
+			Body:       sm.Text,
+		}
+		if t, err := time.Parse(time.RFC3339Nano, sm.CreatedAt); err == nil {
+			msg.CreatedAt = t
+		}
+		messages = append(messages, msg)
+	}
+	return messages, nil
 }
 
 // getStreamConfig returns cached Stream Chat credentials, bootstrapping

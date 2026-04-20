@@ -44,6 +44,7 @@ type Post struct {
 	Body       string    `json:"body"`
 	AuthorName string    `json:"authorName"`
 	AuthorURL  string    `json:"authorUrl"`
+	MediaURLs  []string  `json:"mediaUrls,omitempty"`
 	CreatedAt  time.Time `json:"createdAt"`
 }
 
@@ -83,11 +84,12 @@ type Profile struct {
 
 // Message represents a chat message.
 type Message struct {
-	ID        string    `json:"id"`
-	ChannelID string    `json:"channelId"`
-	AuthorID  string    `json:"authorId"`
-	Body      string    `json:"body"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID         string    `json:"id"`
+	ChannelID  string    `json:"channelId"`
+	AuthorID   string    `json:"authorId"`
+	AuthorName string    `json:"authorName,omitempty"`
+	Body       string    `json:"body"`
+	CreatedAt  time.Time `json:"createdAt"`
 }
 
 // Channel represents a chat channel.
@@ -99,9 +101,7 @@ type Channel struct {
 // Notification represents a notification item.
 type Notification struct {
 	ID        string    `json:"id"`
-	Title     string    `json:"title"`
 	Body      string    `json:"body"`
-	Link      string    `json:"link"`
 	Read      bool      `json:"read"`
 	CreatedAt time.Time `json:"createdAt"`
 }

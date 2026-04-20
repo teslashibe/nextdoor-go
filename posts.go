@@ -26,7 +26,7 @@ const getPostQuery = `query GetPost($postId: ID!) {
     body
     author { displayName url }
     createdAt { epochSeconds }
-    mediaAttachments { __typename }
+    mediaAttachments { __typename url }
   }
 }`
 
@@ -64,6 +64,7 @@ const createPostMutation = `mutation CreatePostV3($input: CreatePostV2Input!) {
             body
             author { displayName url }
             createdAt { epochSeconds }
+            mediaAttachments { __typename url }
           }
         }
       }

@@ -38,7 +38,7 @@ const feedQuery = `query PersonalizedFeed($mainFeedArgs: MainFeedArgs!) {
             body
             author { displayName url }
             createdAt { epochSeconds }
-            mediaAttachments { __typename }
+            mediaAttachments { __typename url }
           }
         }
       }
@@ -117,12 +117,19 @@ func parseFeedResponse(fr feedResponse) FeedPage {
 }
 
 func postFromNode(n postNode) Post {
+	var urls []string
+	for _, ma := range n.MediaAttachments {
+		if ma.URL != "" {
+			urls = append(urls, ma.URL)
+		}
+	}
 	return Post{
 		ID:         n.ID,
 		Subject:    n.Subject,
 		Body:       n.Body,
 		AuthorName: n.Author.DisplayName,
 		AuthorURL:  n.Author.URL,
+		MediaURLs:  urls,
 		CreatedAt:  epochToTime(n.CreatedAt.EpochSeconds),
 	}
 }
