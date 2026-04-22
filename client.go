@@ -9,6 +9,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -84,6 +85,11 @@ func (c *Client) makeRequest(ctx context.Context, method, url string, body []byt
 
 // doRequest performs a single HTTP round-trip.
 func (c *Client) doRequest(ctx context.Context, method, url string, body []byte) ([]byte, error) {
+	c.waitForGap(ctx)
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
 	var bodyReader io.Reader
 	if body != nil {
 		bodyReader = bytes.NewReader(body)
@@ -112,6 +118,8 @@ func (c *Client) doRequest(ctx context.Context, method, url string, body []byte)
 		return nil, fmt.Errorf("%w: reading body: %v", ErrRequestFailed, err)
 	}
 
+	c.updateRateLimit(resp.Header)
+
 	switch resp.StatusCode {
 	case http.StatusOK, http.StatusCreated, http.StatusNoContent:
 		return raw, nil
@@ -122,7 +130,20 @@ func (c *Client) doRequest(ctx context.Context, method, url string, body []byte)
 	case http.StatusNotFound:
 		return nil, ErrNotFound
 	case http.StatusTooManyRequests:
-		return nil, fmt.Errorf("%w: %s", ErrRateLimited, truncate(string(raw), 256))
+		wait := parseRetryAfter(resp.Header.Get("Retry-After"), 60*time.Second)
+		c.rlMu.Lock()
+		c.rlState.Remaining = 0
+		c.rlState.RetryAfter = wait
+		if c.rlState.Reset.IsZero() || time.Until(c.rlState.Reset) < wait {
+			c.rlState.Reset = time.Now().Add(wait)
+		}
+		c.rlMu.Unlock()
+		c.gapMu.Lock()
+		if earliest := time.Now().Add(wait); c.lastReqAt.Before(earliest) {
+			c.lastReqAt = earliest
+		}
+		c.gapMu.Unlock()
+		return nil, fmt.Errorf("%w: retry after %s", ErrRateLimited, wait)
 	default:
 		return nil, &HTTPError{StatusCode: resp.StatusCode, Body: truncate(string(raw), 256)}
 	}
@@ -162,4 +183,102 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "..."
+}
+
+func (c *Client) updateRateLimit(h http.Header) {
+	c.rlMu.Lock()
+	defer c.rlMu.Unlock()
+	if v := rlHeader(h, "Limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			c.rlState.Limit = n
+		}
+	}
+	if v := rlHeader(h, "Remaining"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			c.rlState.Remaining = n
+		}
+	}
+	if v := rlHeader(h, "Reset"); v != "" {
+		if ts, err := strconv.ParseInt(v, 10, 64); err == nil {
+			if ts > 1_000_000_000 {
+				c.rlState.Reset = time.Unix(ts, 0)
+			} else {
+				c.rlState.Reset = time.Now().Add(time.Duration(ts) * time.Second)
+			}
+		}
+	}
+}
+
+func rlHeader(h http.Header, suffix string) string {
+	for _, p := range []string{"X-RateLimit-", "X-Rate-Limit-", "X-Ratelimit-", "RateLimit-"} {
+		if v := strings.TrimSpace(h.Get(p + suffix)); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func (c *Client) adaptiveGap() time.Duration {
+	c.rlMu.Lock()
+	rs := c.rlState
+	c.rlMu.Unlock()
+
+	if rs.Remaining == 0 && !rs.Reset.IsZero() {
+		if d := time.Until(rs.Reset); d > 0 {
+			return d + 50*time.Millisecond
+		}
+	}
+	if rs.Remaining > 0 && !rs.Reset.IsZero() {
+		if d := time.Until(rs.Reset); d > 0 {
+			spread := d / time.Duration(float64(rs.Remaining)*0.9)
+			if spread > c.minGap {
+				return spread
+			}
+		}
+	}
+	return c.minGap
+}
+
+func (c *Client) waitForGap(ctx context.Context) {
+	gap := c.adaptiveGap()
+	c.gapMu.Lock()
+	now := time.Now()
+	next := c.lastReqAt.Add(gap)
+	if now.After(next) {
+		next = now
+	}
+	c.lastReqAt = next
+	c.gapMu.Unlock()
+
+	if wait := time.Until(next); wait > 0 {
+		select {
+		case <-ctx.Done():
+		case <-time.After(wait):
+		}
+	}
+	c.rlMu.Lock()
+	c.rlState.RetryAfter = 0
+	c.rlMu.Unlock()
+}
+
+func parseRetryAfter(val string, fallback time.Duration) time.Duration {
+	if val == "" {
+		return fallback
+	}
+	trimmed := strings.TrimSpace(val)
+	if n, err := strconv.ParseInt(trimmed, 10, 64); err == nil {
+		if n > 1_000_000_000 {
+			if d := time.Until(time.Unix(n, 0)); d > 0 {
+				return d
+			}
+			return fallback
+		}
+		return time.Duration(n) * time.Second
+	}
+	if t, err := http.ParseTime(trimmed); err == nil {
+		if d := time.Until(t); d > 0 {
+			return d
+		}
+	}
+	return fallback
 }

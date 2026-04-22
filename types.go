@@ -114,3 +114,33 @@ type SearchResult struct {
 	Body  string `json:"body"`
 	URL   string `json:"url"`
 }
+
+// RateLimitState captures rate-limit information from the most recently observed
+// response headers. All fields are zero-valued until a response with rate-limit
+// headers is received.
+type RateLimitState struct {
+	Limit      int           `json:"limit"`       // max requests per window (0 = not reported)
+	Remaining  int           `json:"remaining"`   // requests left in the current window
+	Reset      time.Time     `json:"reset"`       // when the window resets (UTC)
+	RetryAfter time.Duration `json:"retry_after"` // set to Retry-After duration after a 429
+}
+
+// IsLimited reports whether the current state indicates requests are blocked.
+func (r RateLimitState) IsLimited() bool {
+	if !r.Reset.IsZero() && r.Remaining == 0 && time.Now().Before(r.Reset) {
+		return true
+	}
+	return r.RetryAfter > 0
+}
+
+// ResetIn returns how long until the rate-limit window resets.
+// Returns 0 if Reset is in the past or not set.
+func (r RateLimitState) ResetIn() time.Duration {
+	if r.Reset.IsZero() {
+		return 0
+	}
+	if d := time.Until(r.Reset); d > 0 {
+		return d
+	}
+	return 0
+}

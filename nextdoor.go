@@ -21,6 +21,12 @@ type Client struct {
 	userAgent  string
 	maxRetries int
 	retryBase  time.Duration
+	minGap     time.Duration
+
+	gapMu     sync.Mutex
+	lastReqAt time.Time
+	rlMu      sync.Mutex
+	rlState   RateLimitState
 
 	streamOnce   sync.Once
 	streamConfig *StreamConfig
@@ -52,6 +58,11 @@ func WithHTTPClient(hc *http.Client) Option {
 	}
 }
 
+// WithMinRequestGap sets the minimum time between consecutive requests. Default: 300ms.
+func WithMinRequestGap(d time.Duration) Option {
+	return func(c *Client) { c.minGap = d }
+}
+
 // New creates a new Nextdoor client. Returns an error if the required
 // auth credentials (CSRFToken, AccessToken) are missing.
 func New(auth Auth, opts ...Option) (*Client, error) {
@@ -64,9 +75,17 @@ func New(auth Auth, opts ...Option) (*Client, error) {
 		userAgent:  defaultUserAgent,
 		maxRetries: defaultRetries,
 		retryBase:  defaultRetryBase,
+		minGap:     300 * time.Millisecond,
 	}
 	for _, o := range opts {
 		o(c)
 	}
 	return c, nil
+}
+
+// RateLimit returns a snapshot of the most recently observed rate-limit state.
+func (c *Client) RateLimit() RateLimitState {
+	c.rlMu.Lock()
+	defer c.rlMu.Unlock()
+	return c.rlState
 }
