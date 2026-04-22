@@ -90,6 +90,27 @@ NEXTDOOR_COOKIES_FILE=./cookies.json go test -v -run TestGetMe
 
 The cookies file should be a JSON array of `{"name": "...", "value": "..."}` objects (browser cookie export format).
 
+## MCP support
+
+This package ships an [MCP](https://modelcontextprotocol.io/) tool surface in `./mcp` for use with [`teslashibe/mcptool`](https://github.com/teslashibe/mcptool)-compatible hosts (e.g. [`teslashibe/agent-setup`](https://github.com/teslashibe/agent-setup)). 21 tools cover the full client API: profile (me/by-id), feed (list/paginate), posts (fetch/create/delete/react/unreact), comments (list/paginate/create/delete), messaging (channels list/create, messages list/send/delete), notifications, and post/neighbor search.
+
+```go
+import (
+    "github.com/teslashibe/mcptool"
+    nextdoor "github.com/teslashibe/nextdoor-go"
+    ndmcp "github.com/teslashibe/nextdoor-go/mcp"
+)
+
+client, _ := nextdoor.New(nextdoor.Auth{...})
+provider := ndmcp.Provider{}
+for _, tool := range provider.Tools() {
+    // register tool with your MCP server, passing client as the
+    // opaque client argument when invoking
+}
+```
+
+A coverage test in `mcp/mcp_test.go` fails if a new exported method is added to `*Client` without either being wrapped by an MCP tool or being added to `mcp.Excluded` with a reason — keeping the MCP surface in lockstep with the package API is enforced by CI rather than convention.
+
 ## Dependencies
 
-Zero production dependencies — stdlib only.
+Zero production dependencies — stdlib only. The `./mcp` subpackage adds [`teslashibe/mcptool`](https://github.com/teslashibe/mcptool) (and its single transitive `invopop/jsonschema` dep) for schema reflection.
